@@ -1,20 +1,21 @@
 #include <Arduino.h>
 #include <Wifi.h>
 #include <WiFiClientSecure.h>
-#include <string.h>
+#include <ArduinoJson.h>
 
 #define NPAGES 5
+#define NRESULTS 2
 
 typedef struct {
 	const char train;
 	const char* stop_id;
 	const char* name;
-	std::string uptown[2];
-	std::string downtown[2];
+	char* uptown[NRESULTS];
+	char* downtown[NRESULTS];
 } display_page;
 
-const char ssid[] = "zemog";
-const char password[] = "sugzemog27";
+const char ssid[] = "MySpectrumWiFi80-2G"; /* "zemog"; */
+const char password[] = "bluecrown332"; /* "sugzemog27"; */
 const char ca_cert[] = "-----BEGIN CERTIFICATE-----\n" \
 "MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF\n" \
 "ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6\n" \
@@ -36,6 +37,7 @@ const char ca_cert[] = "-----BEGIN CERTIFICATE-----\n" \
 "rqXRfboQnoZsG4q5WTP468SQvvG5\n" \
 "-----END CERTIFICATE-----\n";
 const char server[] = "bcns2d5cx6.execute-api.us-west-1.amazonaws.com";
+const char header_delimiter[] = "\r\n\r\n";
 
 WiFiClientSecure client;
 int ptr;
@@ -52,8 +54,8 @@ int make_request(const display_page& page) {
 	Serial.printf("[REQUEST] Requesting times for %c trains at %s\n", 
 			page.train, page.name);
 	if (client.connect(server, 443)) {
-		client.printf("GET /fetch?train=%c&stop-id=%s&n-results=2 HTTP/1.0\r\n",
-				page.train, page.stop_id);
+		client.printf("GET /fetch?train=%c&stop-id=%s&n-results=%d HTTP/1.0\r\n",
+				page.train, page.stop_id, NRESULTS);
 		client.printf("Host: %s\r\n", server);
 		client.println();
 		return 0;
@@ -86,7 +88,37 @@ int read_response(display_page& page) {
 	client.stop();
 	Serial.printf("[RESPONSE]\n%s\n", buf);
 
-	std::string response(buf);
+	const int capacity = JSON_OBJECT_SIZE(4) + 2*JSON_ARRAY_SIZE(2);
+	StaticJsonDocument<capacity> doc;
+
+	char* data = strstr(buf, header_delimiter) + strlen(header_delimiter);
+	Serial.print("begin data: ");
+	Serial.println(data);
+
+	DeserializationError err = deserializeJson(doc, data);
+	if (err) {
+		Serial.printf("[RESPONSE] JSON error %s\n", err.c_str());
+		return 1;
+	}
+	const char* be = doc["train"];
+	Serial.println(be);
+
+	// const char* delimiter = "\n";
+	// char* header = strtok(buf, delimiter);
+	// Serial.printf("Header: %s\n", header);
+	// char* line = strtok(NULL, delimiter);
+	// while (strcmp(line, delimiter)) {
+	// 	Serial.println(line);
+	// 	line = strtok(NULL, delimiter);
+	// }
+	// for (int i = 0; i < NRESULTS; i++) {
+	// 	page.uptown[i] = strtok(NULL, delimiter);
+	// 	Serial.println("uptown");
+	// }
+	// for (int i = 0; i < NRESULTS; i++) {
+	// 	page.downtown[i] = strtok(NULL, delimiter);
+	// 	Serial.println("downtown");
+	// }
 	return 0;
 }
 
