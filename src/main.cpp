@@ -3,15 +3,15 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
-#define NPAGES 5
+#define NPAGES 4
 #define NRESULTS 2
 
 typedef struct {
 	const char train;
 	const char* stop_id;
-	const char* name;
-	char* uptown[NRESULTS];
-	char* downtown[NRESULTS];
+	const char* station;
+	int uptown[NRESULTS];
+	int downtown[NRESULTS];
 } display_page;
 
 const char ssid[] = "MySpectrumWiFi80-2G"; /* "zemog"; */
@@ -45,14 +45,13 @@ int ptr;
 display_page pages[NPAGES] = {
 	{'A', "A24", "59 street", {}, {}},
 	{'C', "A24", "59 street", {}, {}},
-	{'E', "A24", "59 street", {}, {}},
 	{'1', "125", "59 street", {}, {}},
-	{'E', "R14", "57 street", {}, {}}
+	{'E', "D14", "7 ave", {}, {}}
 };
 
 int make_request(const display_page& page) {
 	Serial.printf("[REQUEST] Requesting times for %c trains at %s\n", 
-			page.train, page.name);
+			page.train, page.station);
 	if (client.connect(server, 443)) {
 		client.printf("GET /fetch?train=%c&stop-id=%s&n-results=%d HTTP/1.0\r\n",
 				page.train, page.stop_id, NRESULTS);
@@ -84,41 +83,25 @@ int read_response(display_page& page) {
 		buf[bytes_read++] = client.read();
 	}
 
-	buf[bytes_read - 1] = 0;
 	client.stop();
-	Serial.printf("[RESPONSE]\n%s\n", buf);
+	buf[bytes_read - 1] = 0;
 
 	const int capacity = JSON_OBJECT_SIZE(4) + 2*JSON_ARRAY_SIZE(2);
 	StaticJsonDocument<capacity> doc;
 
 	char* data = strstr(buf, header_delimiter) + strlen(header_delimiter);
-	Serial.print("begin data: ");
-	Serial.println(data);
 
 	DeserializationError err = deserializeJson(doc, data);
 	if (err) {
 		Serial.printf("[RESPONSE] JSON error %s\n", err.c_str());
 		return 1;
 	}
-	const char* be = doc["train"];
-	Serial.println(be);
 
-	// const char* delimiter = "\n";
-	// char* header = strtok(buf, delimiter);
-	// Serial.printf("Header: %s\n", header);
-	// char* line = strtok(NULL, delimiter);
-	// while (strcmp(line, delimiter)) {
-	// 	Serial.println(line);
-	// 	line = strtok(NULL, delimiter);
-	// }
-	// for (int i = 0; i < NRESULTS; i++) {
-	// 	page.uptown[i] = strtok(NULL, delimiter);
-	// 	Serial.println("uptown");
-	// }
-	// for (int i = 0; i < NRESULTS; i++) {
-	// 	page.downtown[i] = strtok(NULL, delimiter);
-	// 	Serial.println("downtown");
-	// }
+	for (int i = 0; i < NRESULTS; i++) {
+		page.uptown[i] = (int)doc["uptown"][i];
+		page.downtown[i] = (int)doc["downtown"][i];
+	}
+
 	return 0;
 }
 
@@ -143,13 +126,19 @@ void loop() {
 
 	if (make_request(page)) {
 		Serial.printf("[REQUEST] Failed to make request for %c trains at %s\n",
-				page.train, page.name);
+				page.train, page.station);
 		return;
 	}
 
 	if (read_response(page)) {
 		Serial.printf("[RESPONSE] Failed to read response for %c trains at %s\n",
-				page.train, page.name);
+				page.train, page.station);
 		return;
 	}
+
+	Serial.printf("Next uptown %c trains at %s arriving in %d, %d minutes\n",
+				page.train, page.station, page.uptown[0], page.uptown[1]);
+	Serial.printf("Next downtown %c trains at %s arriving in %d, %d minutes\n",
+				page.train, page.station, page.downtown[0], page.downtown[1]);
+	Serial.println();
 }
