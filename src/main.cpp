@@ -3,7 +3,6 @@
 #include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
-#define NPAGES 4
 #define NRESULTS 2
 
 typedef struct {
@@ -14,8 +13,8 @@ typedef struct {
 	int downtown[NRESULTS];
 } display_page;
 
-const char ssid[] = "MySpectrumWiFi80-2G"; /* "zemog"; */
-const char password[] = "bluecrown332"; /* "sugzemog27"; */
+const char ssid[] = "zemog";
+const char password[] = "sugzemog27";
 const char ca_cert[] = "-----BEGIN CERTIFICATE-----\n" \
 "MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF\n" \
 "ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6\n" \
@@ -41,8 +40,9 @@ const char header_delimiter[] = "\r\n\r\n";
 
 WiFiClientSecure client;
 int ptr;
+int npages;
 
-display_page pages[NPAGES] = {
+display_page pages[] = {
 	{'A', "A24", "59 street", {}, {}},
 	{'C', "A24", "59 street", {}, {}},
 	{'1', "125", "59 street", {}, {}},
@@ -116,13 +116,15 @@ void setup() {
 	}
 	Serial.printf("[WIFI] Connected to %s\n", ssid);
 	client.setCACert(ca_cert);
+
 	ptr = 0;
+	npages = sizeof(pages) / sizeof(pages[0]);
 }
 
 void loop() {
 	delay(1000);
-	display_page& page = pages[ptr];
-	ptr = (++ptr) % NPAGES;
+	display_page& page = pages[ptr++];
+	ptr %= npages;
 
 	if (make_request(page)) {
 		Serial.printf("[REQUEST] Failed to make request for %c trains at %s\n",
