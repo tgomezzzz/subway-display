@@ -1,9 +1,43 @@
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <Wifi.h>
 #include <WiFiClientSecure.h>
-#include <ArduinoJson.h>
+#include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
+
+#include "icon.h"
+#include "page.h"
 
 #define NRESULTS 2
+
+#define PANEL_RES_X 64
+#define PANEL_RES_Y 32
+#define PANEL_CHAIN 1
+
+#define R1_PIN 25
+#define G1_PIN 26
+#define B1_PIN 27
+#define R2_PIN 14
+#define G2_PIN 12
+#define B2_PIN 13
+#define A_PIN 23
+#define B_PIN 19
+#define C_PIN 5
+#define D_PIN 22
+#define E_PIN -1 
+#define LAT_PIN 4
+#define OE_PIN 15
+#define CLK_PIN 18
+
+#define RED 0xE000
+#define BLUE 0x019F
+#define WHITE 0xFFFF
+#define BLACK 0x0000
+
+MatrixPanel_I2S_DMA *display = nullptr;
+
+HUB75_I2S_CFG::i2s_pins _pins={R1_PIN, G1_PIN, B1_PIN, R2_PIN, G2_PIN, B2_PIN, A_PIN, B_PIN, C_PIN, D_PIN, E_PIN, LAT_PIN, OE_PIN, CLK_PIN};
+HUB75_I2S_CFG mxconfig(PANEL_RES_X, PANEL_RES_Y, PANEL_CHAIN, _pins);
+
 
 typedef struct {
 	const char train;
@@ -13,8 +47,8 @@ typedef struct {
 	int downtown[NRESULTS];
 } display_page;
 
-const char ssid[] = "zemog";
-const char password[] = "sugzemog27";
+const char ssid[] = "Verizon_QX4SHW";
+const char password[] = "tulip-hawk7-bib";
 const char ca_cert[] = "-----BEGIN CERTIFICATE-----\n" \
 "MIIDQTCCAimgAwIBAgITBmyfz5m/jAo54vB4ikPmljZbyjANBgkqhkiG9w0BAQsF\n" \
 "ADA5MQswCQYDVQQGEwJVUzEPMA0GA1UEChMGQW1hem9uMRkwFwYDVQQDExBBbWF6\n" \
@@ -36,18 +70,15 @@ const char ca_cert[] = "-----BEGIN CERTIFICATE-----\n" \
 "rqXRfboQnoZsG4q5WTP468SQvvG5\n" \
 "-----END CERTIFICATE-----\n";
 const char server[] = "bcns2d5cx6.execute-api.us-west-1.amazonaws.com";
+const char code_delimiter[] = " ";
 const char header_delimiter[] = "\r\n\r\n";
+const char ok[] = "200";
 
 WiFiClientSecure client;
 int ptr;
 int npages;
 
-display_page pages[] = {
-	{'A', "A24", "59 street", {}, {}},
-	{'C', "A24", "59 street", {}, {}},
-	{'1', "125", "59 street", {}, {}},
-	{'E', "D14", "7 ave", {}, {}}
-};
+Page* pages[4];
 
 int make_request(const display_page& page) {
 	Serial.printf("[REQUEST] Requesting times for %c trains at %s\n", 
@@ -68,7 +99,6 @@ int read_response(display_page& page) {
 
 	// Spin until the client has responded.
 	// Requests for 1, 2, 3, 4, 5, 6, 7, and S trains take a while.
-	// TODO: Bug test this for infinite loops.
 	while (!client.available()) {
 		delay(100);
 		if (!client.connected()) {
@@ -86,10 +116,19 @@ int read_response(display_page& page) {
 	client.stop();
 	buf[bytes_read - 1] = 0;
 
-	const int capacity = JSON_OBJECT_SIZE(4) + 2*JSON_ARRAY_SIZE(2);
+	char* data = strstr(buf, header_delimiter) + strlen(header_delimiter);
+	strtok(buf, code_delimiter);
+	char* response_code = strtok(NULL, code_delimiter);
+
+	if (strcmp(response_code, ok)) {
+		Serial.printf("[RESPONSE] Returned error code %s\n", response_code);
+		return 1;
+	}
+
+	const int capacity = JSON_OBJECT_SIZE(4) + 2*JSON_ARRAY_SIZE(NRESULTS);
 	StaticJsonDocument<capacity> doc;
 
-	char* data = strstr(buf, header_delimiter) + strlen(header_delimiter);
+	Serial.println(data);
 
 	DeserializationError err = deserializeJson(doc, data);
 	if (err) {
@@ -107,40 +146,67 @@ int read_response(display_page& page) {
 
 void setup() {
 	Serial.begin(9600);
-	WiFi.begin(ssid, password);
-	Serial.println();
+	// WiFi.begin(ssid, password);
+	// Serial.println();
 
-	while (WiFi.status() != WL_CONNECTED) {
-		delay(500);
-		Serial.printf("[WIFI] Waiting to connect to %s\n", ssid);
-	}
-	Serial.printf("[WIFI] Connected to %s\n", ssid);
-	client.setCACert(ca_cert);
+	// while (WiFi.status() != WL_CONNECTED) {
+	// 	delay(500);
+	// 	Serial.printf("[WIFI] Waiting to connect to %s\n", ssid);
+	// }
+	// Serial.printf("[WIFI] Connected to %s\n", ssid);
+	// client.setCACert(ca_cert);
 
 	ptr = 0;
 	npages = sizeof(pages) / sizeof(pages[0]);
+
+	mxconfig.gpio.e = 18;
+	mxconfig.clkphase = false;
+	mxconfig.driver = HUB75_I2S_CFG::FM6126A;
+
+	display = new MatrixPanel_I2S_DMA(mxconfig);
+	display->begin();
+	display->setBrightness8(100); //0-255
+	display->clearScreen();
+	display->fillRect(0, 0, display->width(), 11, WHITE);
+	display->fillRect(0, 11, display->width(), 21, 0x31A6);
+
+	pages[0] = new Page('A', "A24", "59 street", display, BLUE, 2);
+	pages[1] = new Page('1', "125", "59 street", display, RED, 2);
+	pages[2] = new Page('C', "125", "59 street", display, BLUE, 2);
+	pages[3] = new Page('E', "D14", "7 ave", display, BLUE, 2);
+	
 }
 
 void loop() {
-	delay(1000);
-	display_page& page = pages[ptr++];
+	// delay(1000);
+	Page* page = pages[ptr++];
 	ptr %= npages;
 
-	if (make_request(page)) {
-		Serial.printf("[REQUEST] Failed to make request for %c trains at %s\n",
-				page.train, page.station);
-		return;
-	}
+	// if (make_request(page)) {
+	// 	Serial.printf("[REQUEST] Failed to make request for %c trains at %s\n",
+	// 			page.train, page.station);
+	// 	return;
+	// }
 
-	if (read_response(page)) {
-		Serial.printf("[RESPONSE] Failed to read response for %c trains at %s\n",
-				page.train, page.station);
-		return;
-	}
+	// if (read_response(page)) {
+	// 	Serial.printf("[RESPONSE] Failed to read response for %c trains at %s\n",
+	// 			page.train, page.station);
+	// 	return;
+	// }
 
-	Serial.printf("Next uptown %c trains at %s arriving in %d, %d minutes\n",
-				page.train, page.station, page.uptown[0], page.uptown[1]);
-	Serial.printf("Next downtown %c trains at %s arriving in %d, %d minutes\n",
-				page.train, page.station, page.downtown[0], page.downtown[1]);
-	Serial.println();
+	// Serial.printf("Next uptown %c trains at %s arriving in %d, %d minutes\n",
+	// 			page.train, page.station, page.uptown[0], page.uptown[1]);
+	// Serial.printf("Next downtown %c trains at %s arriving in %d, %d minutes\n",
+	// 			page.train, page.station, page.downtown[0], page.downtown[1]);
+	// Serial.println();
+
+	// drawIcon(0, 0, red);
+	// drawLetter(3, 2, ICON_1, white);
+	// delay(5000);
+
+	// drawIcon(0, 0, blue);
+	// drawLetter(3, 2, ICON_A, white);
+	// delay(5000);
+	page->display();
+	delay(5000);
 }
