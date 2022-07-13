@@ -16,6 +16,8 @@ bool symbolPixelIsSet(char train, int i, int j) {
         return ICON_E[i][j];
     case '1':
         return ICON_1[i][j];
+    case 'Q':
+        return ICON_Q[i][j];
     }
     return false;
 }

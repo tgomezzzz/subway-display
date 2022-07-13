@@ -65,4 +65,14 @@ const uint8_t ICON_1[ICON_LETTER_HEIGHT][ICON_LETTER_WIDTH] = {
     {0, 1, 1, 1, 0}
 };
 
+const uint8_t ICON_Q[ICON_LETTER_HEIGHT][ICON_LETTER_WIDTH] = {
+    {0, 1, 1, 1, 0},
+    {1, 0, 0, 0, 1},
+    {1, 0, 0, 0, 1},
+    {1, 0, 0, 0, 1},
+    {1, 0, 1, 0, 1},
+    {1, 0, 0, 1, 1},
+    {0, 1, 1, 1, 1}
+};
+
 #endif
