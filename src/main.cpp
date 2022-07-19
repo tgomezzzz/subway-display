@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <Wifi.h>
 #include <WiFiClientSecure.h>
 #include <ESP32-HUB75-MatrixPanel-I2S-DMA.h>
@@ -75,18 +74,23 @@ const char code_delimiter[] = " ";
 const char header_delimiter[] = "\r\n\r\n";
 const char ok[] = "200";
 
+#define NPAGES 7
+
 WiFiClientSecure client;
 int ptr;
-int npages;
+int prev_group;
 
-Page* pages[5];
+Page* pages[NPAGES];
 
-int make_request(const display_page& page) {
+const char* uptown[2] = {"", ""};
+const char* downtown[2] = {"", ""};
+
+int make_request(Page* page) {
 	Serial.printf("[REQUEST] Requesting times for %c trains at %s\n", 
-			page.train, page.station);
+			page->get_train(), page->get_station());
 	if (client.connect(server, 443)) {
 		client.printf("GET /fetch?train=%c&stop-id=%s&n-results=%d HTTP/1.0\r\n",
-				page.train, page.stop_id, NRESULTS);
+				page->get_train(), page->get_stop_id(), NRESULTS);
 		client.printf("Host: %s\r\n", server);
 		client.println();
 		return 0;
@@ -94,7 +98,7 @@ int make_request(const display_page& page) {
 	return 1;
 }
 
-int read_response(display_page& page) {
+int read_response(Page* page) {
 	int bytes_read = 0;
 	char buf[4095];
 
@@ -137,28 +141,50 @@ int read_response(display_page& page) {
 		return 1;
 	}
 
-	for (int i = 0; i < NRESULTS; i++) {
-		page.uptown[i] = (int)doc["uptown"][i];
-		page.downtown[i] = (int)doc["downtown"][i];
+	if (doc["uptown"].size()) {
+		for (int i = 0; i < doc["uptown"].size(); i++) {
+			try {
+				page->set_uptown(i, (const char*) doc["uptown"][i]);
+			} catch (...) {
+				page->set_uptown(i, "?");
+				Serial.println("up failed");
+			}
+		}
+	} else {
+		page->set_uptown(0, "n");
 	}
+
+	if (doc["downtown"].size()) {
+		for (int i = 0; i < doc["downtown"].size(); i++) {
+			try {
+				page->set_downtown(i, (const char*) doc["downtown"][i]);
+			} catch (...) {
+				page->set_downtown(i, "?");
+				Serial.println("down failed");
+			}
+		}
+	} else {
+		page->set_downtown(0, "n");
+	}
+
 
 	return 0;
 }
 
 void setup() {
 	Serial.begin(9600);
-	// WiFi.begin(ssid, password);
-	// Serial.println();
+	WiFi.begin(ssid, password);
+	Serial.println();
 
-	// while (WiFi.status() != WL_CONNECTED) {
-	// 	delay(500);
-	// 	Serial.printf("[WIFI] Waiting to connect to %s\n", ssid);
-	// }
-	// Serial.printf("[WIFI] Connected to %s\n", ssid);
-	// client.setCACert(ca_cert);
+	while (WiFi.status() != WL_CONNECTED) {
+		delay(500);
+		Serial.printf("[WIFI] Waiting to connect to %s\n", ssid);
+	}
+	Serial.printf("[WIFI] Connected to %s\n", ssid);
+	client.setCACert(ca_cert);
 
+	prev_group = -1;
 	ptr = 0;
-	npages = sizeof(pages) / sizeof(pages[0]);
 
 	mxconfig.gpio.e = 18;
 	mxconfig.clkphase = false;
@@ -166,35 +192,37 @@ void setup() {
 
 	display = new MatrixPanel_I2S_DMA(mxconfig);
 	display->begin();
-	display->setBrightness8(100); //0-255
+	display->setBrightness8(60); //0-255
 	display->clearScreen();
 	display->fillRect(0, 0, display->width(), 11, WHITE);
-	display->fillRect(0, 11, display->width(), 21, 0x31A6);
+	display->fillRect(0, 11, display->width(), 21, 0x1082);
 
-	pages[0] = new Page('A', "A24", "59 street", display, BLUE, 2);
-	pages[1] = new Page('1', "125", "59 street", display, RED, 2);
-	pages[2] = new Page('C', "125", "59 street", display, BLUE, 2);
-	pages[3] = new Page('E', "D14", "7 ave", display, BLUE, 2);
-	pages[4] = new Page('Q', "D14", "57 street", display, YELLOW, 2);
+	pages[0] = new Page('Q', "R14", "57 st", 0, display, YELLOW, 2);
+	pages[1] = new Page('N', "R14", "57 st", 0, display, YELLOW, 2);
+	pages[2] = new Page('R', "R14", "57 st", 0, display, YELLOW, 2);
+	pages[3] = new Page('1', "125", "59 st", 1, display, RED, 2);
+	pages[4] = new Page('A', "A24", "59 st", 1, display, BLUE, 2);
+	pages[5] = new Page('C', "A24", "59 st", 1, display, BLUE, 2);
+	pages[6] = new Page('E', "D14", "7 ave", 2, display, BLUE, 3);
 	
 }
 
 void loop() {
 	// delay(1000);
 	Page* page = pages[ptr++];
-	ptr %= npages;
+	ptr %= NPAGES;
 
-	// if (make_request(page)) {
-	// 	Serial.printf("[REQUEST] Failed to make request for %c trains at %s\n",
-	// 			page.train, page.station);
-	// 	return;
-	// }
+	if (make_request(page)) {
+		Serial.printf("[REQUEST] Failed to make request for %c trains at %s\n",
+				page->get_train(), page->get_station());
+		return;
+	}
 
-	// if (read_response(page)) {
-	// 	Serial.printf("[RESPONSE] Failed to read response for %c trains at %s\n",
-	// 			page.train, page.station);
-	// 	return;
-	// }
+	if (read_response(page)) {
+		Serial.printf("[RESPONSE] Failed to read response for %c trains at %s\n",
+				page->get_train(), page->get_station());
+		return;
+	}
 
 	// Serial.printf("Next uptown %c trains at %s arriving in %d, %d minutes\n",
 	// 			page.train, page.station, page.uptown[0], page.uptown[1]);
@@ -202,13 +230,7 @@ void loop() {
 	// 			page.train, page.station, page.downtown[0], page.downtown[1]);
 	// Serial.println();
 
-	// drawIcon(0, 0, red);
-	// drawLetter(3, 2, ICON_1, white);
-	// delay(5000);
-
-	// drawIcon(0, 0, blue);
-	// drawLetter(3, 2, ICON_A, white);
-	// delay(5000);
-	page->display();
+	page->display(prev_group);
+	prev_group = page->get_group();
 	delay(5000);
 }
